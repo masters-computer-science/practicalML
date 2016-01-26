@@ -1,0 +1,109 @@
+---
+title: "pmlAssignment.Rmd"
+output: html_document
+---
+
+Goal
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively.
+
+These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. 
+
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+In this project, our goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. 
+
+They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+Data
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+Prepare the datasets
+Read the training data
+
+```{r}
+
+require(caret)
+require(data.table)
+require(randomForest)
+url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+trainingData <- fread(url)
+```
+
+Read the testing data into a data table.
+
+```{r}
+url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+testingData <- fread(url)
+```
+
+Variables without any missing values in the test dataset will be predictors.
+
+```{r}
+isMissing <- sapply(testingData, function (x) any(is.na(x) | x == ""))
+isPredictor <- !isMissing & grepl("belt|[^(fore)]arm|dumbbell|forearm", names(isMissing))
+predCandidates <- names(isMissing)[isPredictor]
+predCandidates
+```
+
+Analyze the dataset to include only the predictor candidates and the variable - classe.
+
+```{r}
+varToInclude <- c("classe", predCandidates)
+initialTrainingData <- trainingData[, varToInclude, with=FALSE]
+dim(trainingData)
+```
+
+Split the dataset into a 60% training and 40% probing dataset.
+
+```{r}
+seed <- as.numeric(as.Date("2016-01-01"))
+set.seed(seed)
+inTrain <- createDataPartition(trainingData$classe, p=0.6)
+finalTraining <- trainingData[inTrain[[1]]]
+finalTesting <- trainingData[-inTrain[[1]]]
+```
+
+Preprocess the prediction variables by scaling.
+
+```{r}
+X <- finalTraining[, predCandidates, with=FALSE]
+preProc <- preProcess(X)
+preProc
+prd <- predict(preProc, X)
+cleanTrainingData <- data.table(data.frame(classe = finalTraining[, classe], prd))
+```
+
+Apply the centering and scaling to the probing dataset.
+
+```{r}
+X <- finalTesting[, predCandidates, with=FALSE]
+prd <- predict(preProc, X)
+cleanTestingData <- data.table(data.frame(classe = finalTesting[, classe], prd))
+```
+
+Check for near zero variance.
+```{r}
+nonZV <- nearZeroVar(cleanTrainingData, saveMetrics=TRUE)
+if (any(nonZV$nonZV)) nonZV else message("zero variance variable not found.")
+```
+
+Train a prediction model.
+Random forest enssures out of sample error is small. 
+ 
+```{r} 
+fittingData <- randomForest(classe ~. , data=cleanTrainingData)
+prediction <- predict(fittingData, cleanTestingData, type = "class")
+```
+Model Evaluation
+```{r} 
+confusionMatrix(prediction, cleanTestingData$classe)
+```
+The model is 99% accurate on the training data as we have used a very efficient Random Forest ALgorithm.
